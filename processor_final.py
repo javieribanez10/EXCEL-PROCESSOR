@@ -10,7 +10,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 from dotenv import load_dotenv
 
-# Cargar variables de entorno
+# Cargar variables de entorno (solo funciona en local)
 load_dotenv()
 
 # Configuración de la página
@@ -21,6 +21,72 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+def get_api_key():
+    """Obtiene la API key desde múltiples fuentes"""
+    # 1. Primero desde secrets de Streamlit Cloud
+    try:
+        if hasattr(st, 'secrets') and 'OPENAI_API_KEY' in st.secrets:
+            return st.secrets['OPENAI_API_KEY']
+    except:
+        pass
+    
+    # 2. Desde variable de entorno (local)
+    api_key = os.getenv("OPENAI_API_KEY")
+    if api_key and len(api_key) > 10:
+        return api_key
+    
+    # 3. Desde session state (configurado por el usuario)
+    if 'api_key' in st.session_state and st.session_state.api_key:
+        return st.session_state.api_key
+    
+    return None
+
+def configure_api_key():
+    """Interfaz para configurar la API key si no está disponible"""
+    st.sidebar.markdown("### 🔑 Configuración OpenAI")
+    
+    api_key = get_api_key()
+    
+    if api_key and len(api_key) > 10:
+        st.sidebar.success("✅ API Key configurada")
+        # Mostrar solo los primeros y últimos caracteres por seguridad
+        masked_key = f"{api_key[:8]}...{api_key[-8:]}" if len(api_key) > 16 else "***"
+        st.sidebar.text(f"Key: {masked_key}")
+        return True
+    else:
+        st.sidebar.error("❌ API Key requerida")
+        
+        # Campo para ingresar la API key
+        user_api_key = st.sidebar.text_input(
+            "Ingresa tu OpenAI API Key:",
+            type="password",
+            help="Tu API key de OpenAI (sk-...)",
+            placeholder="sk-proj-..."
+        )
+        
+        if user_api_key:
+            if user_api_key.startswith('sk-') and len(user_api_key) > 20:
+                st.session_state.api_key = user_api_key
+                st.sidebar.success("✅ API Key guardada para esta sesión")
+                st.experimental_rerun()
+            else:
+                st.sidebar.error("❌ API Key inválida. Debe empezar con 'sk-'")
+        
+        st.sidebar.markdown("""
+        **Para Streamlit Cloud:**
+        1. Ve a tu app en Streamlit Cloud
+        2. Settings → Secrets
+        3. Agrega: `OPENAI_API_KEY = "tu-api-key"`
+        
+        **Para uso local:**
+        Crea un archivo `.env` con:
+        ```
+        OPENAI_API_KEY=tu-api-key
+        ```
+        """)
+        
+        return False
+
 class ExcelProcessor:
     def __init__(self):
         self.client = None
@@ -28,7 +94,7 @@ class ExcelProcessor:
     def get_openai_client(self):
         """Obtiene el cliente de OpenAI de forma lazy"""
         if self.client is None:
-            api_key = os.getenv("OPENAI_API_KEY")
+            api_key = get_api_key()
             if api_key and len(api_key) > 10:
                 try:
                     from openai import OpenAI
@@ -38,7 +104,6 @@ class ExcelProcessor:
                     st.error(f"Error configurando OpenAI: {e}")
                     return False
             else:
-                st.warning("API key de OpenAI no configurada")
                 return False
         return True
     
@@ -321,6 +386,9 @@ def main():
     st.title("📊 Excel Processor - Análisis Inteligente")
     st.markdown("### Procesamiento y análisis automático de archivos Excel/CSV con IA")
     
+    # Configurar API Key (esto detiene la app si no hay API key)
+    api_key_configured = configure_api_key()
+    
     # Crear procesador
     processor = ExcelProcessor()
     
@@ -328,21 +396,20 @@ def main():
     with st.sidebar:
         st.header("⚙️ Configuración")
         
-        # Verificar API key
-        api_key = os.getenv("OPENAI_API_KEY")
-        if api_key and len(api_key) > 10:
-            st.success("✅ ASKNOA Processor Inicializado")
-        else:
-            st.error("❌ API key requerida")
-        
         st.markdown("---")
         st.markdown("### 📋 Instrucciones")
         st.markdown("""
-        1. Sube tu archivo Excel/CSV
-        2. Explora el análisis automático
-        3. Usa la IA para insights
+        1. Configura tu API key de OpenAI
+        2. Sube tu archivo Excel/CSV
+        3. Explora el análisis automático
+        4. Usa la IA para insights
         """)
     
+    # Solo continuar si la API key está configurada
+    if not api_key_configured:
+        st.warning("⚠️ Configura tu API key de OpenAI para continuar")
+        return
+        
     # File uploader
     uploaded_file = st.file_uploader(
         "Sube tu archivo Excel o CSV",
